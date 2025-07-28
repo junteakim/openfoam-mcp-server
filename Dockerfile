@@ -1,10 +1,7 @@
-# OpenFOAM MCP Server Docker Image
 FROM ubuntu:22.04
 
-# Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -20,45 +17,32 @@ RUN apt-get update && apt-get install -y \
     software-properties-common \
     gnupg \
     ca-certificates \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenFOAM 12
+# OpenFOAM 12 설치
 RUN wget -O - https://dl.openfoam.org/gpg.key | apt-key add - && \
     add-apt-repository http://dl.openfoam.org/ubuntu && \
-    apt-get update && \
-    apt-get install -y openfoam12 && \
+    apt-get update && apt-get install -y openfoam12 && \
     rm -rf /var/lib/apt/lists/*
 
-# Set up OpenFOAM environment
-ENV FOAM_VERSION=12
-ENV FOAM_INST_DIR=/opt/openfoam12
-ENV WM_PROJECT_DIR=/opt/openfoam12
-
-# Create app directory
 WORKDIR /app
+COPY . /app
 
-# Copy source code
-COPY src/ ./src/
-COPY CMakeLists.txt ./
-COPY README.md ./
+# 컴파일 에러 수정
+RUN sed -i 's/meshRequest.refinementRegions = request\["refinement_regions"\];/meshRequest.refinementRegions = request["refinement_regions"].get<std::vector<std::string>>();/' \
+    /app/src/tools/snappy_mesh_tool.cpp
 
-# Source OpenFOAM environment and build
-RUN /bin/bash -c "source /opt/openfoam12/etc/bashrc && \
+# 빌드
+RUN /bin/bash -c "rm -rf build CMakeCache.txt CMakeFiles && \
+    source /opt/openfoam12/etc/bashrc && \
     cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=20 && \
     cmake --build build --parallel $(nproc)"
 
-# Create non-root user
-RUN useradd -m -u 1000 openfoam && \
-    chown -R openfoam:openfoam /app
+# 🔧 핵심 수정: 조용한 실행 모드
+RUN echo '#!/bin/bash' > /app/run.sh && \
+    echo 'source /opt/openfoam12/etc/bashrc >/dev/null 2>&1' >> /app/run.sh && \
+    echo 'exec /app/build/openfoam-mcp-server "$@"' >> /app/run.sh && \
+    chmod +x /app/run.sh
 
-USER openfoam
-
-# Set up runtime environment
-ENV PATH="/app/build:$PATH"
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD /app/build/openfoam-mcp-server --version || exit 1
-
-# Default command
-CMD ["/app/build/openfoam-mcp-server"]
+CMD ["/app/run.sh"]

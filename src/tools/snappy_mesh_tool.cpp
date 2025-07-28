@@ -72,7 +72,7 @@ json SnappyMeshTool::handleRequest(const json& request) {
         meshRequest.enableLayers = request.value("enable_layers", false);
         
         if (request.contains("refinement_regions")) {
-            meshRequest.refinementRegions = request["refinement_regions"];
+            meshRequest.refinementRegions = request["refinement_regions"].get<std::vector<std::string>>();
         }
         
         // Generate mesh with educational integration
